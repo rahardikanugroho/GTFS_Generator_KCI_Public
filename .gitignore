@@ -1,0 +1,8 @@
+output/
+*.zip
+__pycache__/
+*.pyc
+.env
+*.db
+examples/output/
+examples/broken_feed/
