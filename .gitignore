@@ -6,3 +6,10 @@ __pycache__/
 *.db
 examples/output/
 examples/broken_feed/
+
+# timetables and generated state
+*.xlsx
+*.pdf
+demo_out/
+inactive_stops.json
+gtfs_master*.zip
