@@ -911,33 +911,56 @@ def parse_type_b(ws, sheet_name):
     return stations_order, trains
 
 
+def _find_right_group_start(ws):
+    """Column index where the sheet's right-hand direction group begins."""
+    no_cols = []
+    for col in range(1, ws.max_column + 1):
+        h = ws.cell(3, col).value
+        if h and str(h).strip().upper() in ("NO", "NO."):
+            no_cols.append(col)
+    return no_cols[1] if len(no_cols) >= 2 else float("inf")
+
+
+def _find_direction_ket_cols(ws, right_start_col):
+    ket_cols = []
+    for col in range(1, ws.max_column + 1):
+        for r in range(1, 4):
+            v = ws.cell(r, col).value
+            if v and str(v).strip().upper() in ("KET", "KETERANGAN"):
+                ket_cols.append(col)
+                break
+    left_ket = next((c for c in ket_cols if c < right_start_col), None)
+    right_ket = next((c for c in ket_cols if c >= right_start_col), None)
+    return left_ket, right_ket
+
+
 def parse_jakk_tpk(ws):
     """The Jakarta Kota - Tanjung Priok sheet packs two directions side by side."""
     row4 = [ws.cell(4, c).value for c in range(1, ws.max_column + 1)]
     row5 = [ws.cell(5, c).value for c in range(1, ws.max_column + 1)]
 
-    # The sheet lists both directions side by side, and TPK appears twice: once
-    # as the left direction's terminus (Dat) and once as the right direction's
-    # origin (Ber). The split happens at the first TPK.
-    split_at = None
-    for i, label in enumerate(row4):
-        if label is not None and str(label).strip() == "TPK":
-            split_at = i
-            break
-    if split_at is None:
+    # Both directions sit side by side. The right group starts at the second NO
+    # header (row 3); splitting there keeps TPK as the left direction's terminus
+    # (TPK also appears as the right direction's origin, so a "first TPK" split
+    # would wrongly drop it).
+    right_start_col = _find_right_group_start(ws)
+    if right_start_col == float("inf"):
         split_at = len(row4)
+    else:
+        split_at = int(right_start_col - 1)
 
     left_order, left_map = _collect_station_columns(row4[:split_at], row5[:split_at], skip_headers=True)
     right_order, right_map = _collect_station_columns(row4[split_at:], row5[split_at:], skip_headers=True, col_offset=split_at)
 
-    ket_col = find_ket_col(ws)
+    left_ket_col, right_ket_col = _find_direction_ket_cols(ws, right_start_col)
+
     left_noka = left_relasi = right_noka = right_relasi = None
     for col in range(1, ws.max_column + 1):
         header_val = ws.cell(3, col).value
         if header_val is None:
             continue
         h = str(header_val).strip().upper()
-        if col <= 12:
+        if col < right_start_col:
             if h == "NO KA":
                 left_noka = col
             elif h == "RELASI":
@@ -948,7 +971,7 @@ def parse_jakk_tpk(ws):
             elif h == "RELASI":
                 right_relasi = col
 
-    def collect(noka_col, relasi_col, order, col_map):
+    def collect(noka_col, relasi_col, ket_col, order, col_map):
         found = []
         for row_idx in range(6, ws.max_row + 1):
             no_ka = ws.cell(row_idx, noka_col).value if noka_col else None
@@ -968,8 +991,8 @@ def parse_jakk_tpk(ws):
                 })
         return found
 
-    left_trains = collect(left_noka, left_relasi, left_order, left_map)
-    right_trains = collect(right_noka, right_relasi, right_order, right_map)
+    left_trains = collect(left_noka, left_relasi, left_ket_col, left_order, left_map)
+    right_trains = collect(right_noka, right_relasi, right_ket_col, right_order, right_map)
     return left_order, left_trains, right_order, right_trains
 
 
@@ -1172,7 +1195,7 @@ def _parse_trains(word_boxes, header_y, station_cols):
 
         stops = []
         for code, cx in station_cols:
-            cand = [w for w in words if abs(w[0] - cx) <= 9 and w[2] < last_stn_x + 5]
+            cand = [w for w in words if abs(w[0] - cx) <= 9]
             if not cand:
                 continue
             cell = min(cand, key=lambda x: abs(x[0] - cx))[4]
